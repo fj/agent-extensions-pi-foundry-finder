@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { pickTemplate, routeFor, toModelConfig, type Catalog, type CatalogModel } from "../src/models.ts";
+import { toModelConfig, type Catalog, type CatalogModel } from "../src/models.ts";
 
 const ENDPOINT = "https://acme.services.ai.azure.com";
 
@@ -16,46 +16,28 @@ const CATALOGS: Record<Catalog, CatalogModel[]> = {
     },
   ],
   "azure-openai-responses": [
-    { id: "gpt-5.4", name: "GPT-5.4", provider: "azure-openai-responses", compat: { supportsOpenAIGrammarTools: true } },
+    { id: "gpt-4", name: "GPT-4", provider: "azure-openai-responses", contextWindow: 8_192 },
+    { id: "gpt-5.1", name: "GPT-5.1", provider: "azure-openai-responses", contextWindow: 400_000 },
+    { id: "gpt-5.2", name: "GPT-5.2", provider: "azure-openai-responses", contextWindow: 500_000 },
+    {
+      id: "gpt-5.4",
+      name: "GPT-5.4",
+      provider: "azure-openai-responses",
+      contextWindow: 1_050_000,
+      compat: { supportsOpenAIGrammarTools: true },
+    },
   ],
 };
 
 const lookup = (catalog: Catalog) => CATALOGS[catalog];
 
-describe("routeFor", () => {
-  it("sends Claude models to the Anthropic Messages endpoint", () => {
-    assert.equal(routeFor("claude-opus-5").api, "anthropic-messages");
-  });
-
-  it("sends every other model to the OpenAI Responses endpoint", () => {
-    assert.equal(routeFor("gpt-5.4").api, "openai-responses");
-    assert.equal(routeFor("claudette-1").api, "openai-responses");
-  });
-});
-
-describe("pickTemplate", () => {
-  it("prefers an exact catalog match", () => {
-    assert.deepEqual(pickTemplate(CATALOGS.anthropic, "claude-haiku-4-5"), {
-      template: CATALOGS.anthropic[0],
-      exact: true,
-    });
-  });
-
-  it("falls back to the same-family entry with the longest shared prefix", () => {
-    const match = pickTemplate(CATALOGS.anthropic, "claude-opus-5-5");
-    assert.equal(match?.template.id, "claude-opus-5");
-    assert.equal(match?.exact, false);
-  });
-
-  it("finds nothing for an unknown family", () => {
-    assert.equal(pickTemplate(CATALOGS.anthropic, "llama-4"), undefined);
-  });
-});
+function configFor(model: string, id = model) {
+  return toModelConfig({ id, model, status: "succeeded" }, ENDPOINT, "Acme", lookup);
+}
 
 describe("toModelConfig", () => {
-  it("registers a known Claude deployment under its deployment name", () => {
-    const deployment = { id: "my-opus", model: "claude-opus-5", status: "succeeded" };
-    assert.deepEqual(toModelConfig(deployment, ENDPOINT, "Acme", lookup), {
+  it("registers a known Claude deployment under its deployment name via the Anthropic endpoint", () => {
+    assert.deepEqual(configFor("claude-opus-5", "my-opus"), {
       id: "my-opus",
       name: "Claude Opus 5 (Acme)",
       contextWindow: 1_000_000,
@@ -65,23 +47,40 @@ describe("toModelConfig", () => {
     });
   });
 
-  it("names a fallback-template deployment after the deployment", () => {
-    const deployment = { id: "claude-opus-5-5", model: "claude-opus-5-5", status: "succeeded" };
-    const config = toModelConfig(deployment, ENDPOINT, "Acme", lookup);
-    assert.equal(config?.name, "claude-opus-5-5 (Acme)");
-    assert.equal(config?.contextWindow, 1_000_000);
+  it("gives an empty compat to a catalog model that has none", () => {
+    const config = configFor("claude-haiku-4-5");
+    assert.deepEqual(config?.compat, {});
+    assert.equal(config?.contextWindow, 200_000);
   });
 
-  it("keeps OpenAI compat flags and targets the v1 endpoint", () => {
-    const deployment = { id: "gpt-5.4", model: "gpt-5.4", status: "succeeded" };
-    const config = toModelConfig(deployment, ENDPOINT, "Acme", lookup);
+  it("keeps OpenAI compat flags and targets the v1 Responses endpoint", () => {
+    const config = configFor("gpt-5.4");
     assert.equal(config?.api, "openai-responses");
     assert.equal(config?.baseUrl, `${ENDPOINT}/openai/v1`);
     assert.deepEqual(config?.compat, { supportsOpenAIGrammarTools: true });
   });
 
-  it("skips a deployment with no catalog relative", () => {
-    const deployment = { id: "llama", model: "llama-4", status: "succeeded" };
-    assert.equal(toModelConfig(deployment, ENDPOINT, "Acme", lookup), undefined);
+  it("routes a non-Claude model that only starts with 'claude' to the OpenAI endpoint", () => {
+    assert.equal(toModelConfig({ id: "c", model: "claudette-1", status: "succeeded" }, ENDPOINT, "Acme", () => [
+      { id: "claudette-0", name: "Claudette" },
+    ])?.api, "openai-responses");
+  });
+
+  it("borrows metadata from the same-family model with the longest shared prefix", () => {
+    const config = configFor("claude-opus-5-5");
+    assert.equal(config?.name, "claude-opus-5-5 (Acme)");
+    assert.equal(config?.contextWindow, 1_000_000);
+  });
+
+  it("prefers a closer relative over earlier catalog entries", () => {
+    assert.equal(configFor("gpt-5.4-mini")?.contextWindow, 1_050_000);
+  });
+
+  it("breaks prefix-length ties in favor of the earliest catalog entry", () => {
+    assert.equal(configFor("gpt-5.9")?.contextWindow, 400_000);
+  });
+
+  it("skips a deployment with no same-family catalog model", () => {
+    assert.equal(configFor("llama-4"), undefined);
   });
 });

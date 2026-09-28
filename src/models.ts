@@ -12,7 +12,7 @@ export interface CatalogModel {
 
 export type CatalogLookup = (catalog: Catalog) => CatalogModel[];
 
-export interface Route {
+interface Route {
   api: "anthropic-messages" | "openai-responses";
   path: string;
   catalog: Catalog;
@@ -34,7 +34,7 @@ const OPENAI_ROUTE: Route = {
   unsupportedCompat: [],
 };
 
-export function routeFor(model: string): Route {
+function routeFor(model: string): Route {
   return family(model) === "claude" ? ANTHROPIC_ROUTE : OPENAI_ROUTE;
 }
 
@@ -49,7 +49,7 @@ function commonPrefixLength(a: string, b: string): number {
 }
 
 /** Finds the catalog entry for a model, or failing that its closest same-family relative. */
-export function pickTemplate(
+function pickTemplate(
   catalog: CatalogModel[],
   model: string,
 ): { template: CatalogModel; exact: boolean } | undefined {
