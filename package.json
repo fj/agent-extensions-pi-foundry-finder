@@ -1,0 +1,25 @@
+{
+  "name": "pi-foundry-finder",
+  "version": "0.1.0",
+  "description": "Pi extension that discovers Azure AI Foundry deployments at startup and registers them as pi models",
+  "keywords": ["pi-package", "azure", "foundry", "azure-ai-foundry"],
+  "license": "MIT",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fj/agent-extensions-pi-foundry-finder.git"
+  },
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.ts"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "pi": {
+    "extensions": ["./extensions"]
+  }
+}
